@@ -26,7 +26,7 @@ export type BrowserOption = 'chromium' | 'firefox' | 'webkit';
  * - 로그인 자동화 등 자주 사용되는 브라우저 작업 처리
  */
 @Injectable()
-export class PlaywrightManager {
+export class PlaywrightService {
 	// 단일 브라우저 인스턴스를 저장하는 변수
 	private browser!: Browser;
 

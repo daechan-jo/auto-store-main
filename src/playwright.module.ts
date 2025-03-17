@@ -1,9 +1,9 @@
 import { Module,Global } from '@nestjs/common';
-import {PlaywrightManager} from "./playwright.service";
+import { PlaywrightService } from "./playwright.service";
 
 @Global()
 @Module({
-	providers: [PlaywrightManager],
-	exports: [PlaywrightManager],
+	providers: [PlaywrightService],
+	exports: [PlaywrightService],
 })
 export class PlaywrightModule {}
