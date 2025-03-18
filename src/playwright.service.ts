@@ -15,6 +15,11 @@ import {
  */
 export type BrowserOption = 'chromium' | 'firefox' | 'webkit';
 
+interface PageInfo {
+	page: Page;
+	contextId: string;
+}
+
 /**
  * Playwright 브라우저 및 페이지 관리 서비스
  *
@@ -37,7 +42,7 @@ export class PlaywrightService {
 	private isInitialized = false;
 
 	// 페이지 ID를 키로 사용하여 페이지 객체를 저장하는 맵
-	private pagePool: Map<string, Page> = new Map();
+	private pagePool: Map<string, PageInfo> = new Map();
 
 	// 컨텍스트 ID를 키로 사용하여 브라우저 컨텍스트 객체를 저장하는 맵
 	private contextPool: Map<string, BrowserContext> = new Map();
@@ -204,7 +209,7 @@ export class PlaywrightService {
 		const page = await context.newPage();
 
 		// 페이지를 풀에 저장
-		this.pagePool.set(pageId, page);
+		this.pagePool.set(pageId, {page, contextId});
 
 		// JavaScript 타임아웃 이벤트 처리를 개선
 		await page.route('**/*', async (route) => {
@@ -222,8 +227,8 @@ export class PlaywrightService {
 	 * @returns 페이지 객체 또는 해당 ID의 페이지가 없는 경우 null
 	 */
 	async getPage(pageId: string): Promise<Page | null> {
-		const page = this.pagePool.get(pageId);
-		return page || null; // 페이지가 없으면 null 반환
+		const pageInfo =  this.pagePool.get(pageId);
+		return pageInfo?.page || null; // 페이지가 없으면 null 반환
 	}
 
 	/**
@@ -232,10 +237,10 @@ export class PlaywrightService {
 	 * @param pageId - 해제할 페이지의 ID
 	 */
 	async releasePage(pageId: string) {
-		const page = this.pagePool.get(pageId);
-		if (page) {
+		const pageInfo = this.pagePool.get(pageId);
+		if (pageInfo) {
 			// 페이지 닫기 시도
-			await page.close().catch((err) => console.error(`Error closing page ${pageId}:`, err));
+			await pageInfo.page.close().catch((err) => console.error(`Error closing page ${pageId}:`, err));
 			// 성공 여부와 관계없이 풀에서 제거
 			this.pagePool.delete(pageId);
 		}
@@ -250,10 +255,10 @@ export class PlaywrightService {
 		const context = this.contextPool.get(contextId);
 		if (context) {
 			// 해당 컨텍스트에 속한 모든 페이지를 찾아 해제
-			for (const [pageId, page] of this.pagePool.entries()) {
+			for (const [pageId, pageInfo] of this.pagePool.entries()) {
 				// 페이지가 이 컨텍스트에 속하는지 확인
 				try {
-					if (page.context() === context) {
+					if (pageInfo.page.context() === context) {
 						await this.releasePage(pageId);
 					}
 				} catch (error) {
@@ -457,5 +462,129 @@ export class PlaywrightService {
 				message: error instanceof Error ? error.message : String(error)
 			};
 		}
+	}
+
+	/**
+	 * 병렬 처리를 위한 여러 페이지를 생성합니다
+	 *
+	 * @param store - 스토어 식별자 (페이지 ID 생성에 사용)
+	 * @param cronId - 크론 작업 식별자 (페이지 ID 생성에 사용)
+	 * @param concurrentCount - 생성할 총 페이지 수 (기본값: 2)
+	 * @returns 생성된 페이지 배열
+	 */
+	async createParallelPages(
+		store: string,
+		cronId: string,
+		concurrentCount: number = 2,
+	): Promise<Page[]> {
+		const pages: Page[] = [];
+		const contextId = `context-${store}-${cronId}`;
+
+
+		for (let i = 0; i < concurrentCount; i++) {
+			const pageId = `page-${store}-${cronId}-${i+1}`;
+			const existingPage = await this.getPage(pageId);
+			const pageInfo = this.pagePool.get(pageId);
+
+			if (existingPage && pageInfo && pageInfo.contextId === contextId) {
+				// 기존 페이지가 있고 동일한 컨텍스트에 속해 있으면 재사용
+				pages.push(existingPage);
+			} else {
+				// 페이지가 없거나 다른 컨텍스트에 속해 있으면 새로 생성
+				const newPage = await this.createPage(contextId, pageId);
+				pages.push(newPage);
+			}
+		}
+
+		return pages;
+	}
+
+	/**
+	 * 병렬 처리를 위해 데이터 배열을 여러 청크로 분할합니다
+	 *
+	 * @param items - 분할할 아이템 배열
+	 * @param chunkCount - 분할할 청크 수
+	 * @returns 분할된 청크 배열
+	 */
+	splitIntoChunks<T>(items: T[], chunkCount: number): T[][] {
+		const chunkSize = Math.ceil(items.length / chunkCount);
+		const chunks: T[][] = [];
+
+		for (let i = 0; i < items.length; i += chunkSize) {
+			chunks.push(items.slice(i, i + chunkSize));
+		}
+
+		return chunks;
+	}
+
+	/**
+	 * 데이터 아이템을 병렬로 처리합니다
+	 *
+	 * @param pages - 사용할 페이지 배열
+	 * @param items - 처리할 데이터 아이템 배열
+	 * @param processItemFn - 각 아이템을 처리하는 함수
+	 * @param batchSize - 한 번에 처리할 배치 크기 (기본값: 50)
+	 * @param onBatchComplete - 배치 처리 완료 시 호출할 콜백 함수
+	 * @param onProgress - 진행 상황 업데이트 시 호출할 콜백 함수
+	 * @returns 처리 결과 (성공 및 실패 카운트)
+	 */
+	async processItemsInParallel<T, R>(
+		pages: Page[],
+		items: T[],
+		processItemFn: (page: Page, item: T) => Promise<R>,
+		batchSize: number = 50,
+		onBatchComplete?: (batchResults: R[]) => Promise<void>,
+		onProgress?: (completed: number, total: number) => void
+	): Promise<{ successCount: number; failCount: number; results: R[] }> {
+		// 아이템을 청크로 분할
+		const chunks = this.splitIntoChunks(items, pages.length);
+		const totalItems = items.length;
+
+		let successCount = 0;
+		let failCount = 0;
+		const allResults: R[] = [];
+
+		// 각 페이지별로 병렬 처리
+		await Promise.all(
+			chunks.map(async (chunk, pageIndex) => {
+				const page = pages[pageIndex];
+				const localBatch: R[] = [];
+
+				for (const item of chunk) {
+					try {
+						// 아이템 처리
+						const result = await processItemFn(page, item);
+						localBatch.push(result);
+						allResults.push(result);
+
+						// 배치 크기에 도달하면 배치 처리 완료 콜백 호출
+						if (localBatch.length >= batchSize && onBatchComplete) {
+							await onBatchComplete([...localBatch]);
+							localBatch.length = 0;
+						}
+
+						// 진행 상황 업데이트
+						successCount++;
+						if (onProgress) {
+							onProgress(successCount + failCount, totalItems);
+						}
+					} catch (error) {
+						failCount++;
+						console.error(`아이템 처리 중 오류 발생:`, error);
+
+						if (onProgress) {
+							onProgress(successCount + failCount, totalItems);
+						}
+					}
+				}
+
+				// 남은 배치 처리
+				if (localBatch.length > 0 && onBatchComplete) {
+					await onBatchComplete([...localBatch]);
+				}
+			})
+		);
+
+		return { successCount, failCount, results: allResults };
 	}
 }
