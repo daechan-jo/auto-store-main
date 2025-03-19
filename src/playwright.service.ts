@@ -298,6 +298,58 @@ export class PlaywrightService {
 	}
 
 	/**
+	 * 안전하게 웹페이지를 탐색하는 함수
+	 *
+	 * @param {Page} page - Playwright Page 객체
+	 * @param {string} url - 탐색할 URL
+	 * @returns {Promise<Response|null>} - 페이지 응답 객체 또는 네비게이션 실패 시 null
+	 * @throws {Error} - 네비게이션 타임아웃 또는 다른 탐색 관련 오류 발생시
+	 *
+	 * @description
+	 * 이 함수는 다음 4단계를 통해 안정적인 페이지 탐색을 보장합니다:
+	 * 1. 이전 페이지 활동이 완전히 종료될 때까지 대기
+	 * 2. 새 URL로 네비게이션 시작 (최대 60초 타임아웃)
+	 * 3. 네트워크 요청이 안정화될 때까지 대기 (최대 10초, 실패시 진행)
+	 * 4. 페이지 렌더링이 완료될 때까지 대기 (최대 10초, 실패시 진행)
+	 *
+	 * @example
+	 * try {
+	 *   const response = await navigateSafely(page, 'https://example.com');
+	 *   if (response && response.ok()) {
+	 *     console.log('페이지 로드 성공');
+	 *   }
+	 * } catch (error) {
+	 *   console.error('탐색 실패:', error);
+	 * }
+	 */
+	async navigateSafely(page: Page, url: string) {
+		// 1. 이전 페이지 활동 완전히 종료 대기
+		await page.evaluate(() => new Promise(r => setTimeout(r, 1000)));
+
+		try {
+			// 2. 네비게이션 시작
+			const response = await page.goto(url, {
+				timeout: 60000,
+				waitUntil: 'domcontentloaded' // 먼저 DOM이 로드되기만 기다림
+			});
+
+			// 3. 네트워크 안정화 확인
+			await page.waitForLoadState('networkidle', { timeout: 10000 })
+				.catch(() => console.log('네트워크 안정화 대기 건너뜀'));
+
+			// 4. 페이지 렌더링 확인
+			await page.waitForFunction(() =>
+				document.readyState === 'complete', { timeout: 10000 })
+				.catch(() => console.log('렌더링 완료 대기 건너뜀'));
+
+			return response;
+		} catch (error: any) {
+			console.error(`네비게이션 오류: ${error.message}`);
+			throw error;
+		}
+	}
+
+	/**
 	 * 온채널 사이트에 로그인합니다.
 	 *
 	 * @param store - 스토어 식별자
@@ -310,7 +362,7 @@ export class PlaywrightService {
 		store: string,
 		contextId: string,
 		pageId: string,
-		browserOption: BrowserOption = 'webkit'
+		browserOption: BrowserOption = 'chromium'
 	): Promise<Page> {
 		let page: Page;
 
@@ -335,15 +387,15 @@ export class PlaywrightService {
 			// 스토어에 따라 적절한 계정 정보 가져오기
 			const onchEmail =
 				store === 'linkedout'
-					? this.configService.get<string>('L_ON_CHANNEL_EMAIL')!
-					: this.configService.get<string>('R_ON_CHANNEL_EMAIL')!;
+					? this.configService.get<string>('ON_CHANNEL_EMAIL')!
+					: this.configService.get<string>('ON_CHANNEL_EMAIL')!;
 			const onchPassword =
 				store === 'linkedout'
-					? this.configService.get<string>('L_ON_CHANNEL_PASSWORD')!
-					: this.configService.get<string>('R_ON_CHANNEL_PASSWORD')!;
+					? this.configService.get<string>('ON_CHANNEL_PASSWORD')!
+					: this.configService.get<string>('ON_CHANNEL_PASSWORD')!;
 
 			// 온채널 로그인 페이지로 이동
-			await page.goto('https://www.onch3.co.kr/login/login_web.php', { timeout: 60000 });
+			await page.goto('https://www.onch3.co.kr/login/login_web.php', { timeout: 60000, waitUntil: 'networkidle' });
 
 			// 이메일과 비밀번호 입력
 			await page.fill('input[placeholder="온채널 또는 통합계정 아이디"]', onchEmail);
@@ -352,6 +404,7 @@ export class PlaywrightService {
 			// 로그인 버튼 클릭
 			await page.click('button[name="login"]');
 
+			await page.waitForLoadState('networkidle')
 
 			return page;
 		} catch (error: any) {
@@ -375,7 +428,7 @@ export class PlaywrightService {
 	async loginToCoupangSite(
 		contextId: string,
 		pageId: string,
-		browserOption: BrowserOption = 'webkit'
+		browserOption: BrowserOption = 'chromium'
 	): Promise<Page> {
 		let page: Page;
 
@@ -421,12 +474,13 @@ export class PlaywrightService {
 			console.log('쿠팡 로그인 진행 중...');
 			// 로그인 필요한 경우
 			// 사용자 이름과 비밀번호 입력
-			await page.fill('#username', this.configService.get<string>('L_COUPANG_EMAIL')!);
-			await page.fill('#password', this.configService.get<string>('L_COUPANG_PASSWORD')!);
+			await page.fill('#username', this.configService.get<string>('COUPANG_EMAIL')!);
+			await page.fill('#password', this.configService.get<string>('COUPANG_PASSWORD')!);
 
 			// 엔터 키 누르기 (로그인 버튼 클릭 대신)
 			await page.keyboard.press('Enter');
 
+			await page.waitForLoadState('networkidle')
 			console.log('쿠팡 로그인 완료');
 
 			return page;
