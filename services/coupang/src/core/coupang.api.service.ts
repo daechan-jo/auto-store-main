@@ -66,7 +66,7 @@ export class CoupangApiService {
                 'X-Coupang-Date': datetime,
               },
               params: {
-                vendorId: this.configService.get<string>('L_COUPANG_VENDOR_ID'),
+                vendorId: this.configService.get<string>('COUPANG_VENDOR_ID'),
                 nextToken: nextToken,
                 maxPerPage: 100,
                 status: 'APPROVED',
@@ -113,6 +113,8 @@ export class CoupangApiService {
         // 다음 페이지로 이동
         if (!nextToken) break;
       }
+
+      console.log(`${type}${cronId}: 쿠팡 전체상품 조회 완료 - ${allProducts.length}개`);
 
       return allProducts;
     } catch (error: any) {
@@ -169,6 +171,7 @@ export class CoupangApiService {
         },
       });
 
+      console.log(JSON.stringify(response.data.data, null, 2));
       return response.data.data;
     } catch (error: any) {
       console.error(
@@ -238,7 +241,7 @@ export class CoupangApiService {
             'X-Coupang-Date': datetime,
           },
           params: {
-            vendorId: this.configService.get<string>('L_COUPANG_VENDOR_ID'),
+            vendorId: this.configService.get<string>('COUPANG_VENDOR_ID'),
             createdAtFrom: yesterday,
             createdAtTo: today,
             status: status,
