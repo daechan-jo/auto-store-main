@@ -302,7 +302,6 @@ export class PlaywrightService {
 	 *
 	 * @param {Page} page - Playwright Page 객체
 	 * @param {string} url - 탐색할 URL
-	 * @returns {Promise<Response|null>} - 페이지 응답 객체 또는 네비게이션 실패 시 null
 	 * @throws {Error} - 네비게이션 타임아웃 또는 다른 탐색 관련 오류 발생시
 	 *
 	 * @description
@@ -328,7 +327,7 @@ export class PlaywrightService {
 
 		try {
 			// 2. 네비게이션 시작
-			const response = await page.goto(url, {
+			await page.goto(url, {
 				timeout: 60000,
 				waitUntil: 'domcontentloaded' // 먼저 DOM이 로드되기만 기다림
 			});
@@ -342,7 +341,7 @@ export class PlaywrightService {
 				document.readyState === 'complete', { timeout: 10000 })
 				.catch(() => console.log('렌더링 완료 대기 건너뜀'));
 
-			return response;
+			return;
 		} catch (error: any) {
 			console.error(`네비게이션 오류: ${error.message}`);
 			throw error;
