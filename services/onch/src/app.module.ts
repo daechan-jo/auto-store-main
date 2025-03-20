@@ -1,6 +1,7 @@
-import { CommonModule } from '@daechanjo/common-utils';
+import { CronType } from '@daechanjo/models';
 import { PlaywrightModule, PlaywrightService } from '@daechanjo/playwright';
 import { RabbitMQModule } from '@daechanjo/rabbitmq';
+import { UtilModule } from '@daechanjo/util';
 import { BullModule, InjectQueue } from '@nestjs/bull';
 import { Module, OnApplicationBootstrap, OnModuleInit } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -15,7 +16,7 @@ import { CrawlingOnchSoldoutProductsProvider } from './core/crawler/provider/cra
 import { CrawlOnchDetailProductsProvider } from './core/crawler/provider/crawlOnchDetailProducts.provider';
 import { CrawlOnchRegisteredProductsProvider } from './core/crawler/provider/crawlOnchRegisteredProducts.provider';
 import { DeleteProductsProvider } from './core/crawler/provider/deleteProducts.provider';
-import { WaybillExtractionProvider } from './core/crawler/provider/waybillExtraction.provider';
+import { DeliveryExtractionProvider } from './core/crawler/provider/deliveryExtraction.provider';
 import { MessageQueueProcessor } from './core/onch.queue.processor';
 import { OnchService } from './core/onch.service';
 import { OnchItemEntity } from './infrastructure/entities/onchItem.entity';
@@ -53,7 +54,7 @@ import { OnchRepository } from './infrastructure/repository/onch.repository';
     }),
     PlaywrightModule,
     RabbitMQModule,
-    CommonModule,
+    UtilModule,
   ],
   controllers: [OnchMessageController],
   providers: [
@@ -66,13 +67,14 @@ import { OnchRepository } from './infrastructure/repository/onch.repository';
     CrawlOnchRegisteredProductsProvider,
     CrawlOnchDetailProductsProvider,
     AutomaticOrderingProvider,
-    WaybillExtractionProvider,
+    DeliveryExtractionProvider,
   ],
 })
 export class AppModule implements OnApplicationBootstrap, OnModuleInit {
   constructor(
     @InjectQueue('onch-message-queue') private readonly queue: Queue,
     private readonly playwrightService: PlaywrightService,
+    private readonly onchCrawlerService: OnchCrawlerService,
   ) {}
 
   async onModuleInit() {
@@ -85,8 +87,9 @@ export class AppModule implements OnApplicationBootstrap, OnModuleInit {
 
   async onApplicationBootstrap() {
     setTimeout(async () => {
-      this.playwrightService.setConfig(true, 'chromium');
+      this.playwrightService.setConfig(false, 'chromium');
       await this.playwrightService.initializeBrowser();
+      await this.onchCrawlerService.waybillExtraction('test', 'linkedout', CronType.SOLDOUT);
     });
   }
 }
