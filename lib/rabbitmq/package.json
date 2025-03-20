@@ -1,0 +1,29 @@
+{
+	"name": "@daechanjo/rabbitmq",
+	"version": "1.0.0",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"files": [
+		"dist"
+	],
+	"scripts": {
+		"test": "echo \"Error: no test specified\" && exit 1"
+	},
+	"author": "daechan-jo",
+	"license": "ISC",
+	"description": "",
+	"dependencies": {
+		"@nestjs/common": "^10.0.0",
+		"@nestjs/config": "^3.3.0",
+		"@nestjs/core": "^10.0.0",
+		"@nestjs/microservices": "^10.0.0",
+		"@types/node": "^22.10.2",
+		"amqplib": "^0.10.5",
+		"rxjs": "^7.0.0"
+	},
+	"devDependencies": {
+		"@types/amqplib": "^0.10.6",
+		"i": "^0.3.7",
+		"npm": "^11.0.0"
+	}
+}
